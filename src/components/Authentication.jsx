@@ -31,22 +31,37 @@ export default function QuizAuthDashboard() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      // If user is logged in and email is verified, set as authenticated
-      if (currentUser && currentUser.emailVerified) {
-        setIsAuthenticated(true);
+      try {
+        setUser(currentUser);
+        if (currentUser?.emailVerified) {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error("Auth state error:", error);
       }
     });
-    return () => unsubscribe();
+    
+    return () => {
+      // Properly unsubscribe
+      unsubscribe();
+    };
   }, []);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const checkUsernameExists = async (username) => {
-    const usersRef = collection(db, "users");
-    const q = query(usersRef, where("username", "==", username));
-    const querySnapshot = await getDocs(q);
-    return !querySnapshot.empty;
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("username", "==", username));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error("Firestore query error:", error);
+      // Treat as if username exists to prevent duplicates
+      return true;
+    }
   };
 
   const handleQuickJoin = (e) => {
@@ -74,18 +89,21 @@ export default function QuizAuthDashboard() {
         }
 
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await sendEmailVerification(userCredential.user);
-        setVerificationSent(true);
-        
+
+          // Write to Firestore FIRST while user is authenticated
         await setDoc(doc(db, "users", userCredential.user.uid), {
-          email: userCredential.user.email,
-          fullName: fullName.trim(),
-          username: username.trim().toLowerCase(),
-          createdAt: new Date(),
-          quizzesTaken: 0,
-          averageScore: 0,
-          emailVerified: false
-        });
+        email: userCredential.user.email,
+        fullName: fullName.trim(),
+        username: username.trim().toLowerCase(),
+        createdAt: new Date(),
+        quizzesTaken: 0,
+        averageScore: 0,
+        emailVerified: false
+      });
+        
+        // Then send verification email
+      await sendEmailVerification(userCredential.user);
+      setVerificationSent(true);
         
         await signOut(auth);
         alert("Signup successful! Please verify your email before logging in.");
